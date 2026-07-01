@@ -24,11 +24,11 @@
 - [x] 로그인 성공 판별 로직 (URL이 /login 벗어남 + networkidle)
 - [x] SPA 대기 처리 적용 (visible/editable 대기, 하드코딩 sleep 지양)
 - [x] dry-run(`login`) 모드로 로그인만 안전하게 검증 — **실제 로그인 성공 확인 완료** ✅
-- [ ] 출근/퇴근 버튼 실제 셀렉터 조사 (로그인 후 대시보드 DOM 확인 필요)
-- [ ] 출근(`checkin`) 버튼 클릭 함수 구현 + 결과 확인
-- [ ] 퇴근(`checkout`) 버튼 클릭 함수 구현 + 결과 확인
+- [x] 출근/퇴근 버튼 실제 셀렉터 확정 (.worktime ul.btns li) + 확인 모달(확인/취소)
+- [x] 출근/퇴근 클릭 → 모달 '확인' 클릭 흐름 구현 (`_do_action`, confirm 플래그)
+- [x] 안전 test 모드(`checkout-test`)로 버튼→모달→취소 경로 검증 완료 ✅
 - [x] 실패 시 스크린샷 저장 로직
-- [ ] `automation.py`를 CLI로 직접 실행해 checkin/checkout 각각 수동 테스트
+- [ ] 실제 `checkout`(모달 확인)까지 1회 실행 검증 — 진짜 퇴근 기록되므로 사용자 타이밍에 실행
 
 ## 3단계. 재시도 & 예외 처리
 - [ ] 로그인/클릭 단계 재시도 래핑 (`tenacity`, 최대 `MAX_RETRIES`, 지수 백오프)
@@ -36,14 +36,15 @@
 - [ ] `finally`에서 브라우저·컨텍스트 항상 정리 (리소스 누수 방지)
 
 ## 4단계. 텔레그램 봇 연동
-- [ ] BotFather로 봇 생성 → 토큰 발급 → `.env` 반영 (기존 봇 재사용 가능)
-- [ ] 본인 `chat_id` 확인 → `.env`의 `TELEGRAM_CHAT_ID` 설정
-- [ ] `src/bot.py` — 롱폴링 봇 뼈대 + 시작 로그
-- [ ] 인가 미들웨어: 허용된 chat_id 외 명령 무시
-- [ ] `/checkin`, `/checkout` 핸들러 → `automation.py` 호출 연결
-- [ ] `/status` 헬스체크 핸들러
-- [ ] 실행 결과(성공/실패 + 스크린샷) 텔레그램 회신
-- [ ] 자동화 실행이 봇 이벤트 루프를 막지 않도록 비동기 처리
+- [x] 기존 봇 재사용 (@sean_coin_auto_trading_bot) → 토큰 `.env` 반영
+- [x] 본인 `chat_id`(8751407498) → `.env`의 `TELEGRAM_CHAT_ID` 설정
+- [x] `src/bot.py` — 롱폴링 봇 + 시작 로그 (연결 확인 완료)
+- [x] 인가 미들웨어: 허용된 chat_id 외 명령 차단
+- [x] `/checkin`, `/checkout` (+ `_test` 안전버전) 핸들러 → `automation.py` 연결
+- [x] `/status` 헬스체크 핸들러
+- [x] 실행 결과 + 스크린샷 텔레그램 회신 (퇴근 시 "○월 ○일 ○시 ○분에 퇴근 처리되었습니다")
+- [x] 동시 실행 방지 Lock + 비동기 처리
+- [ ] 텔레그램에서 실제 명령 테스트 (/status, /checkout_test 먼저)
 
 ## 5단계. 상시 실행
 - [ ] 봇을 장시간 실행 프로세스로 기동 (터미널/`nohup` 등)

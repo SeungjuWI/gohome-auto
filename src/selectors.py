@@ -34,10 +34,14 @@ PASSWORD_INPUT = "css=#reqLoginPw"
 LOGIN_BUTTON = 'button:visible >> text="로그인"'
 
 # ─────────────────────────────────────────────────────────────
-# 출근 / 퇴근 버튼 (⚠️ 실제 DOM 확인 후 확정 필요 — 현재는 추정 텍스트)
+# 출근 / 퇴근 버튼 — 대시보드 '내정보' 카드의 .worktime ul.btns 안 <li>
+# (페이지 곳곳에 '출근'/'퇴근' 텍스트가 있으므로 반드시 이 컨테이너로 한정)
+# 현재 상태는 해당 li에 class="active"로 표시됨.
 # ─────────────────────────────────────────────────────────────
-CHECKIN_BUTTON = 'text=출근'
-CHECKOUT_BUTTON = 'text=퇴근'
+CHECKIN_BUTTON = '.worktime ul.btns li:has-text("출근")'
+CHECKOUT_BUTTON = '.worktime ul.btns li:has-text("퇴근")'
 
-# 출퇴근 처리 완료 판정 요소 (토스트/상태 텍스트 등, 실제 확인 필요)
-ACTION_RESULT_MARKER = 'css=.toast, .alert, [class*="complete"]'
+# 출근/퇴근 클릭 후 뜨는 확인 모달 ('출퇴근 체크 / ~ 하시겠습니까?')
+MODAL_MARKER = 'text=하시겠습니까'          # 모달 등장 판정용
+MODAL_CONFIRM_BUTTON = 'button:visible >> text="확인"'
+MODAL_CANCEL_BUTTON = 'button:visible >> text="취소"'

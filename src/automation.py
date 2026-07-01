@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from playwright.async_api import (
@@ -36,6 +38,17 @@ SCREENSHOT_DIR = PROJECT_ROOT / "logs"
 
 class AutomationError(RuntimeError):
     """자동화 단계에서 복구 불가한 실패."""
+
+
+@dataclass
+class ActionResult:
+    """자동화 실행 결과. 봇이 사용자에게 회신할 때 사용한다."""
+
+    action: str  # "checkin" | "checkout"
+    login_only: bool
+    confirmed: bool  # 모달 '확인'까지 눌러 실제 처리했는지
+    completed_at: datetime  # 처리 완료(로컬) 시각
+    screenshot: Path
 
 
 # ─────────────────────────────────────────────────────────────
@@ -140,7 +153,13 @@ async def _verify_logged_in(page: Page, cfg: Config) -> None:
 # ─────────────────────────────────────────────────────────────
 # 출근 / 퇴근 클릭
 # ─────────────────────────────────────────────────────────────
-async def _do_action(page: Page, action: str, cfg: Config) -> None:
+async def _do_action(
+    page: Page, action: str, cfg: Config, confirm: bool = True
+) -> None:
+    """출근/퇴근 버튼 클릭 → 확인 모달에서 '확인'(또는 test 모드는 '취소') 클릭.
+
+    confirm=False 이면 모달에서 '취소'를 눌러 **실제 처리 없이** 경로만 검증한다.
+    """
     timeout = cfg.default_timeout_ms
     if action == "checkin":
         sel, label = selectors.CHECKIN_BUTTON, "출근"
@@ -152,28 +171,52 @@ async def _do_action(page: Page, action: str, cfg: Config) -> None:
     log.info("[%s] 버튼 대기 및 클릭", label)
     btn = page.locator(sel).first
     await btn.wait_for(state="visible", timeout=timeout)
+    await btn.scroll_into_view_if_needed()
     await btn.click(timeout=timeout)
 
-    # 처리 완료 표시(토스트/상태 변경) 대기 — 없으면 경고만 남기고 성공 처리.
+    # 확인 모달 등장 대기 ('~ 하시겠습니까?')
+    log.info("[%s] 확인 모달 대기", label)
     try:
-        await page.locator(selectors.ACTION_RESULT_MARKER).first.wait_for(
+        await page.locator(selectors.MODAL_MARKER).first.wait_for(
             state="visible", timeout=timeout
         )
-        log.info("[%s] 처리 완료 확인", label)
     except PlaywrightTimeoutError:
-        log.warning("[%s] 완료 표시를 확인하지 못함 — 결과 스크린샷으로 확인 필요", label)
+        raise AutomationError(
+            f"[{label}] 확인 모달이 뜨지 않았습니다 (셀렉터 불일치 또는 상태 문제)."
+        )
+
+    if not confirm:
+        log.info("[%s] test 모드 — 모달 '취소' 클릭 (실제 처리 안 함)", label)
+        await page.locator(selectors.MODAL_CANCEL_BUTTON).first.click(timeout=timeout)
+        return
+
+    log.info("[%s] 모달 '확인' 클릭 (실제 처리)", label)
+    await page.locator(selectors.MODAL_CONFIRM_BUTTON).first.click(timeout=timeout)
+
+    # 모달이 닫히면 처리 완료로 간주
+    try:
+        await page.locator(selectors.MODAL_MARKER).first.wait_for(
+            state="hidden", timeout=timeout
+        )
+        log.info("[%s] 처리 완료 (모달 닫힘)", label)
+    except PlaywrightTimeoutError:
+        log.warning("[%s] 모달이 닫히지 않음 — 결과 스크린샷으로 확인 필요", label)
 
 
 # ─────────────────────────────────────────────────────────────
 # 진입점: 브라우저 수명주기 관리
 # ─────────────────────────────────────────────────────────────
 async def run_action(
-    action: str, cfg: Config | None = None, login_only: bool = False
-) -> Path:
+    action: str,
+    cfg: Config | None = None,
+    login_only: bool = False,
+    confirm: bool = True,
+) -> ActionResult:
     """로그인 후 지정 동작(checkin/checkout)을 수행하고 결과 스크린샷 경로를 반환.
 
     login_only=True 이면 **로그인까지만** 수행하고 출퇴근 클릭은 하지 않는다(dry-run).
-    로그인 로직/셀렉터를 실제 출퇴근 처리 없이 안전하게 검증할 때 사용한다.
+    confirm=False 이면 출퇴근 버튼→모달까지 가되 '취소'를 눌러 실제 처리는 하지 않는다.
+    로그인/셀렉터/모달 경로를 실제 출퇴근 없이 안전하게 검증할 때 사용한다.
 
     실패 시 실패 시점 스크린샷을 남기고 예외를 올린다.
     """
@@ -195,11 +238,18 @@ async def run_action(
         if login_only:
             log.info("dry-run: 로그인만 수행하고 출퇴근 클릭은 건너뜁니다")
         else:
-            await _do_action(page, action, cfg)
+            await _do_action(page, action, cfg, confirm=confirm)
 
+        completed_at = datetime.now()
         await page.screenshot(path=str(shot_path))
         log.info("결과 스크린샷 저장: %s", shot_path)
-        return shot_path
+        return ActionResult(
+            action=action,
+            login_only=login_only,
+            confirmed=(not login_only and confirm),
+            completed_at=completed_at,
+            screenshot=shot_path,
+        )
 
     except Exception as exc:
         # 실패 스크린샷 확보 (가능한 경우)
@@ -223,19 +273,24 @@ async def run_action(
 # CLI 단독 테스트: python -m src.automation checkin | checkout
 # ─────────────────────────────────────────────────────────────
 def _main() -> None:
-    # login = dry-run(로그인만), checkin/checkout = 실제 출퇴근 클릭
+    valid = {"login", "checkin", "checkout", "checkin-test", "checkout-test"}
     arg = sys.argv[1] if len(sys.argv) > 1 else "login"
-    if arg not in {"login", "checkin", "checkout"}:
-        print("사용법: python -m src.automation [login|checkin|checkout]")
-        print("  login    : 로그인까지만 검증 (출퇴근 클릭 안 함, 안전)")
-        print("  checkin  : 실제 출근 처리")
-        print("  checkout : 실제 퇴근 처리")
+    if arg not in valid:
+        print("사용법: python -m src.automation [login|checkin|checkout|checkin-test|checkout-test]")
+        print("  login         : 로그인까지만 검증 (출퇴근 클릭 안 함, 안전)")
+        print("  checkin       : 실제 출근 처리 (모달 '확인')")
+        print("  checkout      : 실제 퇴근 처리 (모달 '확인')")
+        print("  checkin-test  : 출근 버튼→모달까지만, '취소'로 마무리 (안전)")
+        print("  checkout-test : 퇴근 버튼→모달까지만, '취소'로 마무리 (안전)")
         raise SystemExit(2)
 
     login_only = arg == "login"
-    action = "checkin" if login_only else arg
-    path = asyncio.run(run_action(action, login_only=login_only))
-    print(f"완료 — 스크린샷: {path}")
+    confirm = not arg.endswith("-test")
+    action = "checkin" if login_only else arg.replace("-test", "")
+    result = asyncio.run(
+        run_action(action, login_only=login_only, confirm=confirm)
+    )
+    print(f"완료 — 스크린샷: {result.screenshot}")
 
 
 if __name__ == "__main__":
