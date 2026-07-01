@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gohome.bot</string>
+
+    <!-- 실행 명령: 프로젝트 venv 파이썬으로 봇 모듈 실행 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/wiseungju/Documents/GitHub/gohome-auto/.venv/bin/python</string>
+        <string>-m</string>
+        <string>src.bot</string>
+    </array>
+
+    <!-- src 패키지 import를 위해 프로젝트 루트를 작업 디렉터리로 -->
+    <key>WorkingDirectory</key>
+    <string>/Users/wiseungju/Documents/GitHub/gohome-auto</string>
+
+    <!-- 로그인 시 자동 시작 + 죽으면 자동 재기동 -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 재시작 폭주 방지 (크래시 시 최소 30초 간격) -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- stdout/stderr 로그 -->
+    <key>StandardOutPath</key>
+    <string>/Users/wiseungju/Documents/GitHub/gohome-auto/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/wiseungju/Documents/GitHub/gohome-auto/logs/launchd.err.log</string>
+</dict>
+</plist>

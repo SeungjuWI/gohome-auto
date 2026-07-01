@@ -47,11 +47,13 @@
 - [ ] 텔레그램에서 실제 명령 테스트 (/status, /checkout_test 먼저)
 
 ## 5단계. 상시 실행
-- [ ] 봇을 장시간 실행 프로세스로 기동 (터미널/`nohup` 등)
-- [ ] 며칠간 상시 대기하며 명령 정상 수신·처리되는지 확인
-- [ ] (선택) 재부팅 후 자동 시작이 필요하면 launchd 등록 검토
+- [x] launchd LaunchAgent 등록 (`scripts/com.gohome.bot.plist` → ~/Library/LaunchAgents/)
+- [x] RunAtLoad + KeepAlive: 로그인 자동 시작 + 크래시 자동 재기동
+- [x] 봇 정상 기동 확인 (launchctl list / launchd 로그)
+- [ ] 며칠간 상시 대기하며 명령 정상 수신·처리되는지 관찰
 
 ## 6단계. 마무리
-- [ ] `README.md` — 설치·설정·실행·트러블슈팅 정리
-- [ ] 로그가 비밀값을 남기지 않는지 최종 점검
+- [x] `README.md` — 설치·설정·실행·launchd 관리·트러블슈팅 정리
+- [x] 로그 비밀값 마스킹 확인 (config/logger)
 - [ ] 실사용하며 셀렉터 변경/실패 케이스 모니터링
+- [ ] (권장) 채팅에 노출된 그룹웨어 비밀번호 변경
