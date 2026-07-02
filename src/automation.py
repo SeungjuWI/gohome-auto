@@ -153,11 +153,55 @@ async def _verify_logged_in(page: Page, cfg: Config) -> None:
 # ─────────────────────────────────────────────────────────────
 # 출근 / 퇴근 클릭
 # ─────────────────────────────────────────────────────────────
+async def _modal_open(page: Page, timeout: int = 5000) -> bool:
+    """확인 모달('~ 하시겠습니까?')이 이미 떠 있는지 여부."""
+    try:
+        await page.locator(selectors.MODAL_MARKER).first.wait_for(
+            state="visible", timeout=timeout
+        )
+        return True
+    except PlaywrightTimeoutError:
+        return False
+
+
+async def _modal_text(page: Page) -> str:
+    """확인 모달 컨테이너의 전체 텍스트(제목+문구)를 반환."""
+    try:
+        marker = page.locator(selectors.MODAL_MARKER).first
+        return await marker.evaluate(
+            "e => { let n=e; for (let i=0;i<4 && n.parentElement;i++) n=n.parentElement;"
+            " return (n.innerText||'').trim(); }"
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def _cancel_modal(page: Page, timeout: int) -> None:
+    """모달 '취소' 클릭 후 닫힘 대기."""
+    await page.locator(selectors.MODAL_CANCEL_BUTTON).first.click(timeout=timeout)
+    try:
+        await page.locator(selectors.MODAL_MARKER).first.wait_for(
+            state="hidden", timeout=timeout
+        )
+    except PlaywrightTimeoutError:
+        pass
+
+
+async def _click_action_button(page: Page, sel: str, label: str, timeout: int) -> None:
+    """출근/퇴근 버튼(li) 클릭 → 확인 모달을 띄운다."""
+    log.info("[%s] 버튼 대기 및 클릭", label)
+    btn = page.locator(sel).first
+    await btn.wait_for(state="visible", timeout=timeout)
+    await btn.scroll_into_view_if_needed()
+    await btn.click(timeout=timeout)
+
+
 async def _do_action(
     page: Page, action: str, cfg: Config, confirm: bool = True
 ) -> None:
-    """출근/퇴근 버튼 클릭 → 확인 모달에서 '확인'(또는 test 모드는 '취소') 클릭.
+    """출근/퇴근 처리 → 확인 모달에서 '확인'(또는 test 모드는 '취소') 클릭.
 
+    로그인 직후 자동으로 뜨는 확인 모달을 우선 처리하고, 없으면 버튼을 눌러 모달을 띄운다.
     confirm=False 이면 모달에서 '취소'를 눌러 **실제 처리 없이** 경로만 검증한다.
     """
     timeout = cfg.default_timeout_ms
@@ -168,13 +212,27 @@ async def _do_action(
     else:
         raise AutomationError(f"알 수 없는 동작: {action!r} (checkin/checkout만 지원)")
 
-    log.info("[%s] 버튼 대기 및 클릭", label)
-    btn = page.locator(sel).first
-    await btn.wait_for(state="visible", timeout=timeout)
-    await btn.scroll_into_view_if_needed()
-    await btn.click(timeout=timeout)
+    # 그룹웨어는 로그인 직후 '출퇴근 체크 / OO 체크 하시겠습니까?' 모달을 자동으로 띄운다.
+    # 이 자동 모달의 딤 배경이 출퇴근 버튼을 덮으므로, 모달이 이미 떠 있으면
+    # 버튼을 누르지 말고 모달을 바로 처리한다.
+    expected_phrase = f"{label} 체크 하시겠습니까"
 
-    # 확인 모달 등장 대기 ('~ 하시겠습니까?')
+    # 유효한 요청이면 로그인 직후 자동 팝업이 (몇 초 뒤) 뜬다. 넉넉히 기다려
+    # 팝업 로딩 중 버튼을 눌러버리는 경합을 막는다. (이미 처리된 동작이면 안 뜸)
+    if await _modal_open(page, timeout=12000):
+        modal_text = await _modal_text(page)
+        log.info("[%s] 자동 확인 모달 감지: %r", label, modal_text)
+        if expected_phrase in modal_text:
+            log.info("[%s] 모달이 요청과 일치 — 버튼 클릭 없이 바로 처리", label)
+        else:
+            # 자동 모달이 원하는 동작과 다름(예: 자동은 출근, 요청은 퇴근) → 취소 후 버튼 클릭
+            log.info("[%s] 자동 모달이 요청과 불일치 — 취소 후 버튼 클릭", label)
+            await _cancel_modal(page, timeout)
+            await _click_action_button(page, sel, label, timeout)
+    else:
+        await _click_action_button(page, sel, label, timeout)
+
+    # 이 시점에는 대상 동작의 확인 모달이 떠 있어야 한다.
     log.info("[%s] 확인 모달 대기", label)
     try:
         await page.locator(selectors.MODAL_MARKER).first.wait_for(
@@ -182,7 +240,16 @@ async def _do_action(
         )
     except PlaywrightTimeoutError:
         raise AutomationError(
-            f"[{label}] 확인 모달이 뜨지 않았습니다 (셀렉터 불일치 또는 상태 문제)."
+            f"[{label}] 확인 모달이 뜨지 않았습니다. 이미 {label} 처리되었거나 "
+            f"(출근은 하루 1회) 대상 버튼이 비활성 상태일 수 있습니다."
+        )
+
+    # 모달 문구가 요청 동작과 맞는지 최종 검증 (엉뚱한 처리 방지)
+    final_text = await _modal_text(page)
+    if expected_phrase not in final_text:
+        await _cancel_modal(page, timeout)
+        raise AutomationError(
+            f"[{label}] 모달 문구가 요청과 다릅니다: {final_text!r} — 안전을 위해 취소함."
         )
 
     if not confirm:
